@@ -22,6 +22,7 @@ export default function TradeTerminal() {
   const targetApiUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5000";
 
   // 1. Fetch Trade History from Backend
+  // 1. Fetch Trade History from Backend (UPDATED WITH NaN PROTECTION)
   const fetchTradeLedger = async () => {
     if (!user) return;
     try {
@@ -30,30 +31,46 @@ export default function TradeTerminal() {
         const data = await response.json();
         setTradeHistory(data);
         
-        // Calculate Net Position & Average Price
         let totalQty = 0;
         let totalCost = 0;
         
         // Reverse array to calculate from oldest to newest
         [...data].reverse().forEach(trade => {
+          // Fallback to 0 if database has missing/corrupted fields
+          const qty = parseFloat(trade.quantity) || 0;
+          const price = parseFloat(trade.price) || 0;
+
           if (trade.side === "BUY") {
-            totalQty += trade.quantity;
-            totalCost += (trade.quantity * trade.price);
+            const previousQty = totalQty;
+            totalQty += qty;
+            // Add to total cost
+            totalCost += (qty * price);
           } else if (trade.side === "SELL") {
-            totalQty -= trade.quantity;
-            // Simplified logic: reducing cost basis
-            totalCost -= (trade.quantity * (totalCost / (totalQty + trade.quantity)));
+            const previousQty = totalQty;
+            totalQty -= qty;
+            
+            // Deduct from total cost proportionally, ONLY if we had a previous position
+            if (previousQty > 0) {
+              const averageCostAtTimeOfSale = totalCost / previousQty;
+              totalCost -= (qty * averageCostAtTimeOfSale);
+            }
+          }
+
+          // Floating point precision fix (if qty is 0.000000001, treat it as 0)
+          // Also reset totalCost to 0 if position is closed to prevent ghost NaN values
+          if (Math.abs(totalQty) < 0.0001) {
+            totalQty = 0;
+            totalCost = 0;
           }
         });
         
-        setNetPosition(totalQty > 0.00001 ? totalQty : 0); // Handle JS float precision
+        setNetPosition(totalQty);
         setAvgEntryPrice(totalQty > 0 ? (totalCost / totalQty) : 0);
       }
     } catch (err) {
       console.error("Failed to fetch ledger:", err);
     }
   };
-
   // 2. Real-time market streaming & initial fetch
   useEffect(() => {
     fetchTradeLedger(); // Fetch history when component mounts
