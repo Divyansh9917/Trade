@@ -40,13 +40,16 @@ export default function CommunityPage() {
 
     setIsPublishing(true);
     try {
+      // 💡 Smart Fallback: Extract name from email if profile name is missing
+      const userEmail = user?.primaryEmailAddress?.emailAddress || "";
+      const emailPrefix = userEmail.split('@')[0];
+
       const payload = {
         title: newPostData.title,
         content: newPostData.content,
         tag: newPostData.tag,
-        // Fallbacks in case Clerk data is incomplete
-        authorName: user?.fullName || user?.firstName || user?.username || "Pro Trader",
-        authorEmail: user?.primaryEmailAddress?.emailAddress || "trader@proptrado.local"
+        authorName: user?.fullName || user?.firstName || user?.username || emailPrefix || "Anonymous Trader",
+        authorEmail: userEmail || "trader@proptrado.local"
       };
 
       const res = await fetch(`${targetApiUrl}/api/posts`, {
@@ -60,9 +63,8 @@ export default function CommunityPage() {
         setIsWritingModalOpen(false); // Close modal
         fetchPosts(); // Refresh feed instantly
       } else {
-        // 💡 THE DEBUGGER FIX: Reads exact backend error
         const errorData = await res.json().catch(() => ({ error: "Server returned non-JSON format" }));
-        alert(`❌ Server Rejected: ${errorData.error || `HTTP ${res.status}`}`);
+        alert(`Server Rejected: ${errorData.error || `HTTP ${res.status}`}`);
         console.error("Full Backend Rejection Data:", errorData);
       }
     } catch (error) {
@@ -73,10 +75,31 @@ export default function CommunityPage() {
     }
   };
 
+  // Delete Logic
+  const handleDeletePost = async (postId) => {
+    const confirmDelete = window.confirm("Are you sure you want to delete this analysis?");
+    if (!confirmDelete) return;
+
+    try {
+      const res = await fetch(`${targetApiUrl}/api/posts/${postId}`, {
+        method: "DELETE",
+      });
+
+      if (res.ok) {
+        fetchPosts(); // Refresh feed instantly after deletion
+      } else {
+        alert("Failed to delete the post. It might have already been removed.");
+      }
+    } catch (error) {
+      console.error("Delete Error:", error);
+      alert("Network Error while trying to delete.");
+    }
+  };
+
   return (
     <div className="flex flex-col lg:flex-row h-screen w-full bg-black text-zinc-100 font-sans antialiased relative">
       
-      {/* 🚀 WRITE POST MODAL OVERLAY */}
+      {/* WRITE POST MODAL */}
       {isWritingModalOpen && (
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
           <div className="bg-zinc-950 border border-zinc-800 rounded-xl w-full max-w-2xl p-6 shadow-2xl flex flex-col gap-4">
@@ -157,6 +180,8 @@ export default function CommunityPage() {
           {posts.length > 0 ? (
             posts.map((post) => (
               <article key={post._id} className="bg-zinc-950 border border-zinc-900 rounded-xl p-6 lg:p-8 hover:border-zinc-700 transition-colors shadow-xl shadow-black/50">
+                
+                {/* DYNAMIC HEADER WITH DELETE BUTTON */}
                 <div className="flex justify-between items-start mb-6">
                   <div>
                     <h3 className="text-xl lg:text-2xl font-bold text-white mb-2">{post.title}</h3>
@@ -164,10 +189,25 @@ export default function CommunityPage() {
                       Written by <span className="text-emerald-400 font-medium">{post.authorName}</span> • {new Date(post.createdAt).toLocaleDateString()}
                     </p>
                   </div>
-                  <span className="px-3 py-1 bg-zinc-900 text-zinc-300 text-xs font-bold rounded-md border border-zinc-800">
-                    #{post.tag}
-                  </span>
+                  
+                  {/* Right Side: Tag & Conditional Delete Button */}
+                  <div className="flex flex-col items-end gap-3">
+                    <span className="px-3 py-1 bg-zinc-900 text-zinc-300 text-xs font-bold rounded-md border border-zinc-800">
+                      #{post.tag}
+                    </span>
+                    
+                    {/* Only show Delete if emails match */}
+                    {user?.primaryEmailAddress?.emailAddress === post.authorEmail && (
+                      <button 
+                        onClick={() => handleDeletePost(post._id)}
+                        className="text-[10px] uppercase tracking-wider font-bold text-red-500 hover:text-white hover:bg-red-600 px-2 py-1 rounded transition-colors cursor-pointer border border-transparent hover:border-red-500"
+                      >
+                        Delete Post
+                      </button>
+                    )}
+                  </div>
                 </div>
+
                 <div className="text-zinc-300 text-sm lg:text-base leading-relaxed whitespace-pre-wrap">
                   {post.content}
                 </div>
