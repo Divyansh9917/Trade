@@ -3,6 +3,7 @@
 import { useState, useEffect } from "react";
 import { UserButton, useUser } from "@clerk/nextjs";
 import Script from "next/script";
+import Link from "next/link";
 
 export default function TradeTerminal() {
   const { user } = useUser();
@@ -14,7 +15,10 @@ export default function TradeTerminal() {
   const [activeTab, setActiveTab] = useState("positions"); // "positions" or "history"
   const [isProcessing, setIsProcessing] = useState(false);
   
-  // NEW: State for Ledger & Positions
+  // 💡 NEW STATE: Full Screen Chart Toggle
+  const [isChartFullScreen, setIsChartFullScreen] = useState(false);
+
+  // State for Ledger & Positions
   const [tradeHistory, setTradeHistory] = useState([]);
   const [netPosition, setNetPosition] = useState(0);
   const [avgEntryPrice, setAvgEntryPrice] = useState(0);
@@ -22,7 +26,6 @@ export default function TradeTerminal() {
   const targetApiUrl = process.env.NEXT_PUBLIC_BACKEND_URL || "http://localhost:5000";
 
   // 1. Fetch Trade History from Backend
-  // 1. Fetch Trade History from Backend (UPDATED WITH NaN PROTECTION)
   const fetchTradeLedger = async () => {
     if (!user) return;
     try {
@@ -34,30 +37,24 @@ export default function TradeTerminal() {
         let totalQty = 0;
         let totalCost = 0;
         
-        // Reverse array to calculate from oldest to newest
         [...data].reverse().forEach(trade => {
-          // Fallback to 0 if database has missing/corrupted fields
           const qty = parseFloat(trade.quantity) || 0;
           const price = parseFloat(trade.price) || 0;
 
           if (trade.side === "BUY") {
             const previousQty = totalQty;
             totalQty += qty;
-            // Add to total cost
             totalCost += (qty * price);
           } else if (trade.side === "SELL") {
             const previousQty = totalQty;
             totalQty -= qty;
             
-            // Deduct from total cost proportionally, ONLY if we had a previous position
             if (previousQty > 0) {
               const averageCostAtTimeOfSale = totalCost / previousQty;
               totalCost -= (qty * averageCostAtTimeOfSale);
             }
           }
 
-          // Floating point precision fix (if qty is 0.000000001, treat it as 0)
-          // Also reset totalCost to 0 if position is closed to prevent ghost NaN values
           if (Math.abs(totalQty) < 0.0001) {
             totalQty = 0;
             totalCost = 0;
@@ -71,9 +68,10 @@ export default function TradeTerminal() {
       console.error("Failed to fetch ledger:", err);
     }
   };
+
   // 2. Real-time market streaming & initial fetch
   useEffect(() => {
-    fetchTradeLedger(); // Fetch history when component mounts
+    fetchTradeLedger(); 
 
     const wsUrl = "wss://stream.binance.com:9443/ws/btcusdt@ticker";
     const marketSocket = new WebSocket(wsUrl);
@@ -106,7 +104,6 @@ export default function TradeTerminal() {
     const parsedQuantity = parseFloat(quantity);
     if (parsedQuantity <= 0 || isNaN(parsedQuantity)) return alert("Invalid quantity.");
 
-    // THE RISK MANAGEMENT GATEWAY: "Sold should depend upon Buy"
     if (side === "SELL" && tradeProduct === "Delivery") {
       if (parsedQuantity > netPosition) {
         return alert(`Risk RMS Alert: Insufficient Holdings. You have ${netPosition.toFixed(4)} BTC, but trying to sell ${parsedQuantity} BTC in Delivery.`);
@@ -136,7 +133,6 @@ export default function TradeTerminal() {
       setIsProcessing(false);
 
       if (response.ok) {
-        // Refresh the ledger automatically after successful trade
         fetchTradeLedger(); 
         alert(`Order Executed. ID: ${serverResult._id.slice(-6).toUpperCase()}`);
       } else {
@@ -155,8 +151,9 @@ export default function TradeTerminal() {
       <aside className="w-full lg:w-16 h-16 lg:h-full shrink-0 flex flex-row lg:flex-col justify-between lg:justify-start items-center px-4 lg:px-0 lg:py-5 border-b lg:border-b-0 lg:border-r border-zinc-900 bg-zinc-950 z-30 sticky top-0 lg:static">
         <div className="text-emerald-500 font-black text-2xl lg:text-xl lg:mb-10 tracking-tighter select-none cursor-default">PT</div>
         <div className="flex flex-row lg:flex-col gap-6 lg:gap-8 text-zinc-500">
-          <button className="text-emerald-400 hover:text-white transition-colors cursor-pointer text-lg lg:text-base">📊</button>
-          <button className="hover:text-white transition-colors cursor-pointer text-lg lg:text-base">⚙️</button>
+          <Link href="/trade" title="Trading Terminal" className="text-emerald-400 hover:text-white transition-colors cursor-pointer text-lg lg:text-base">📊</Link>
+          <Link href="/community" title="Community & Blogs" className="hover:text-white transition-colors cursor-pointer text-lg lg:text-base">📝</Link>
+          <button title="Settings" className="hover:text-white transition-colors cursor-pointer text-lg lg:text-base">⚙️</button>
         </div>
         <div className="lg:mt-auto cursor-pointer hover:scale-105 transition-transform"><UserButton afterSignOutUrl="/sign-in" /></div>
       </aside>
@@ -166,6 +163,17 @@ export default function TradeTerminal() {
           <div className="flex items-center gap-3 md:gap-4">
             <h1 className="text-lg md:text-xl font-bold tracking-tight text-white whitespace-nowrap">BTC / USDT</h1>
             <span className="px-2 py-0.5 text-[10px] md:text-xs font-semibold bg-zinc-900 text-zinc-400 rounded border border-zinc-800 hidden sm:inline-block">SPOT</span>
+            
+            {/* 🚀 EXPAND CHART BUTTON */}
+            <button 
+              onClick={() => setIsChartFullScreen(true)}
+              className="ml-2 px-2.5 py-1.5 bg-zinc-900 hover:bg-zinc-800 text-zinc-400 hover:text-white rounded border border-zinc-800 transition-colors text-xs flex items-center gap-1.5 cursor-pointer shadow-sm"
+              title="Full Screen Chart"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 8V4m0 0h4M4 4l5 5m11-1V4m0 0h-4m4 0l-5 5M4 16v4m0 0h4m-4 0l5-5m11 5l-5-5m5 5v-4m0 4h-4"></path></svg>
+              <span className="hidden md:inline font-bold tracking-wider">EXPAND</span>
+            </button>
+
           </div>
           <div className="flex flex-col items-end">
             <span className="text-[10px] md:text-xs font-medium text-zinc-500 tracking-wider uppercase">Live Index</span>
@@ -175,7 +183,20 @@ export default function TradeTerminal() {
           </div>
         </header>
 
-        <div className="w-full h-[45vh] md:h-[55vh] lg:h-auto lg:flex-1 bg-black relative">
+        {/* 🚀 DYNAMIC CHART CONTAINER (Handles Fullscreen Pop-out) */}
+        <div className={isChartFullScreen ? "fixed inset-0 z-[100] bg-black" : "w-full h-[45vh] md:h-[55vh] lg:h-auto lg:flex-1 bg-black relative"}>
+          
+          {/* EXIT FULLSCREEN OVERLAY BUTTON */}
+          {isChartFullScreen && (
+            <button 
+              onClick={() => setIsChartFullScreen(false)}
+              className="absolute top-4 right-4 z-[110] bg-zinc-900 border border-zinc-700 hover:bg-zinc-800 hover:border-emerald-500 text-white px-4 py-2 rounded-lg shadow-2xl backdrop-blur text-xs font-bold transition-all flex items-center gap-2 cursor-pointer"
+            >
+              <span className="uppercase tracking-wider">Exit Fullscreen</span>
+              <svg className="w-4 h-4 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="3" d="M6 18L18 6M6 6l12 12"></path></svg>
+            </button>
+          )}
+
           <div id="advanced_tradingview_canvas" className="w-full h-full" />
         </div>
 
@@ -261,7 +282,6 @@ export default function TradeTerminal() {
         
         <div className="flex-1 bg-zinc-900/40 rounded-xl border border-zinc-900 p-4 md:p-6 lg:p-4 flex flex-col">
           
-          {/* Intraday vs Delivery Toggle */}
           <div className="grid grid-cols-2 bg-black rounded-lg p-1 border border-zinc-900 mb-4">
             <button onClick={() => setTradeProduct("Delivery")} className={`py-1 text-[10px] md:text-xs font-bold rounded-md uppercase tracking-wider transition-all cursor-pointer ${tradeProduct === "Delivery" ? "bg-zinc-800 text-white shadow-sm" : "text-zinc-600 hover:text-zinc-400"}`}>
               Delivery (CNC)
